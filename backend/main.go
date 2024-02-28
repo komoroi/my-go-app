@@ -3,12 +3,24 @@ package main
 import (
 	"fmt"
 	"log"
-	"my-go-app/db"
+	"my-go-app/ent"
+	"my-go-app/resolver"
+	"net/http"
 	"os"
 	"time"
 
+	// "github.com/onikan27/graphql-test-api/graph"
+	// "my-go-app/resolver/model"
+
+	"entgo.io/ent/dialect"
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/rs/cors"
 )
+
+const defaultPort = "8080"
 
 func main() {
 	// ログファイルを作成
@@ -18,54 +30,46 @@ func main() {
 	// ログの出力先をログファイルに設定
 	log.SetOutput(logFile)
 
-	db.NewDB()
-
-	// e := echo.New()
-	// e.GET("/", func(c echo.Context) error {
-	// 	return c.JSON(200, map[string]string{
-	// 		"message": "こんにちは、世界！",
-	// 	})
-	// })
-	// e.Start(":8080")
-	log.Println("listening on :8080qqqqq")
-	// db.NewDB()
-	// echoフレームワークのデフォルトの設定を使用してルータを作成
-	// e := echo.New()
-
 	// Create an ent.Client with PostgreSQL database.
-	// entOptions := []ent.Option{}
-	// entOptions = append(entOptions, ent.Debug())
-	// client, err := ent.Open(dialect.Postgres, "host=my-postgres-db user=myuser dbname=mydb sslmode=disable password=mypassword", entOptions...)
-	// if err != nil {
-	// 	log.Fatalf("failed opening connection to postgres: %v", err)
-	// }
-	// defer client.Close()
+	entOptions := []ent.Option{}
+	entOptions = append(entOptions, ent.Debug())
 
-	// // Run the automatic migration tool to create all schema resources.
-	// if err := client.Schema.Create(context.Background(), sql.WithGlobalUniqueID(true)); err != nil {
-	// 	log.Fatalf("failed creating schema resources: %v", err)
-	// }
+	// .env ファイルを読み込む
+	if err := godotenv.Load(); err != nil {
+		fmt.Println("Error loading .env file")
+		return
+	}
+	// .env ファイルから必要な情報を取得
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
+	// PostgreSQL 接続文字列を構築
+	connStr := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=disable", dbHost, dbPort, dbUser, dbName, dbPassword)
+	// ent フレームワークを使用して PostgreSQL に接続
+	client, err := ent.Open(dialect.Postgres, connStr)
+	if err != nil {
+		fmt.Println("Error connecting to the database:", err)
+		return
+	}
+	defer client.Close()
 
-	// ctx := context.Background()
-	// u, err := client.User.
-	// 	Create().
-	// 	SetName("John").
-	// 	SetEmail("hogehoge@gmail.com").
-	// 	Save(ctx)
-	// if err != nil {
-	// 	log.Fatalf("failed creating user: %v", err)
-	// }
-	// log.Println("user was created: ", u)
+	log.Println(resolver.NewSchema(client))
 
-	// port := os.Getenv("PORT")
+	srv := handler.NewDefaultServer(resolver.NewSchema(client))
 
-	// srv := handler.NewDefaultServer(resolver.NewSchema(client))
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:8080"},
+		AllowCredentials: true,
+	})
 
-	// http.Handle("/", playground.Handler("GraphQL playground", "/query"))
-	// http.Handle("/query", srv)
+	log.Println(c)
+	http.Handle("/", playground.Handler("GraphQL playground", "/query"))
+	http.Handle("/query", c.Handler(srv))
 
-	// log.Printf("connect to http://localhost:%s/ for GraphQL playground", port)
-	// log.Fatal(http.ListenAndServe(":"+port, nil))
+	log.Printf("connect to http://localhost:%s/ for GraphQL playground", os.Getenv("PORT"))
+	log.Fatal(http.ListenAndServe(":"+os.Getenv("PORT"), nil))
 }
 
 func createLogFile() *os.File {
